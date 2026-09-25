@@ -61,7 +61,7 @@ Analiza la conversación previa con el usuario para responder de forma coherente
     ];
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash', // Modelo oficial y estable sin sobrecarga
       contents: contenidos,
       config: {
         responseMimeType: "application/json",
@@ -77,7 +77,6 @@ Analiza la conversación previa con el usuario para responder de forma coherente
   }
 });
 
-// Levantar el servidor asociando la dirección a 0.0.0.0 para que Render lo detecte sin problemas
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor activo y escuchando en el puerto ${PORT}`);
 });
