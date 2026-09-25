@@ -3,9 +3,13 @@ import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
+
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
+// Permitir peticiones desde AppCreator24 (CORS)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
@@ -44,7 +48,6 @@ app.post('/api/diagnosticar', async (req, res) => {
       required: ["respuestaConversacional", "causaProbable", "soluciones"],
     };
 
-    // Preparamos el contexto de la conversación
     const promptSistema = `Eres un mecánico automotriz de confianza, cercano y muy experto. 
 Habla de manera amigable, en segunda persona y directo al punto.
 Analiza la conversación previa con el usuario para responder de forma coherente con el contexto acumulado.`;
@@ -69,14 +72,12 @@ Analiza la conversación previa con el usuario para responder de forma coherente
     return res.json(JSON.parse(response.text));
 
   } catch (e) {
-    console.error("ERROR DETALLADO:", e);
+    console.error("ERROR DETALLADO EN RENDER:", e);
     return res.status(500).json({ error: "Error interno al procesar el diagnóstico." });
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Servidor activo en puerto " + (process.env.PORT || 3000));
-});
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Servidor escuchando en puerto " + (process.env.PORT || 3000));
+// Levantar el servidor asociando la dirección a 0.0.0.0 para que Render lo detecte sin problemas
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor activo y escuchando en el puerto ${PORT}`);
 });
