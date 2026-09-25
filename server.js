@@ -6,7 +6,7 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Permite que AppCreator24 se conecte sin bloqueos de seguridad
+// Permitir conexiones desde AppCreator24
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
@@ -46,7 +46,7 @@ app.post('/api/diagnosticar', async (req, res) => {
       },
     });
 
-    console.log("Respuesta de Gemini generada con éxito");
+    console.log("Respuesta generada con éxito");
     return res.json(JSON.parse(response.text));
 
   } catch (e) {
