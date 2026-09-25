@@ -38,7 +38,7 @@ app.post('/api/diagnosticar', async (req, res) => {
     };
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: `Eres un mecánico automotriz experto. Analiza la siguiente falla o síntoma de un vehículo y devuelve la causa más probable y 3 soluciones breves:\n"${descripcion}"`,
       config: {
         responseMimeType: "application/json",
