@@ -7,7 +7,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Permitir peticiones desde AppCreator24 (CORS)
 app.use((req, res, next) => {
@@ -28,42 +28,44 @@ app.post('/api/diagnosticar', async (req, res) => {
       return res.status(400).json({ error: "No se envió un historial válido." });
     }
 
+    // MANTENER SOLO LOS ÚLTIMOS 6 MENSAJES PARA EVITAR TIMEOUTS
+    const historialReciente = historial.slice(-6);
+
     const responseSchema = {
       type: Type.OBJECT,
       properties: {
         respuestaConversacional: { 
           type: Type.STRING, 
-          description: "Respuesta amigable, directa y cercana a la última pregunta o aclaración del usuario." 
+          description: "Respuesta amigable, directa y natural. Haz preguntas si necesitas más contexto." 
         },
         causaProbable: { 
           type: Type.STRING, 
-          description: "Resumen de la causa principal estimada basándote en la falla expuesta." 
+          description: "Causa estimada si hay suficientes datos." 
         },
         soluciones: { 
           type: Type.ARRAY, 
           items: { type: Type.STRING }, 
-          description: "Lista de hasta 3 recomendaciones prácticas o pasos a seguir." 
+          description: "Sugerencias de acción si aplica." 
         },
       },
-      required: ["respuestaConversacional", "causaProbable", "soluciones"],
+      required: ["respuestaConversacional"],
     };
 
-    const promptSistema = `Eres un mecánico automotriz de confianza, cercano y muy experto. 
-Habla de manera amigable, en segunda persona y directo al punto.
-Analiza la conversación previa con el usuario para responder de forma coherente con el contexto acumulado.`;
+    const promptSistema = `Eres un mecánico automotriz experto y amigable. 
+Mantén una conversación fluida. Si falta información para diagnosticar, pregunta amablemente.
+Solo proporciona causaProbable y soluciones cuando los síntomas estén claros.`;
 
     const contenidos = [
       { role: "user", parts: [{ text: promptSistema }] },
-      ...historial.map(msg => ({
+      ...historialReciente.map(msg => ({
         role: msg.rol === "usuario" ? "user" : "model",
-        parts: [{ text: msg.texto }]
+        parts: [{ text: String(msg.texto || '') }]
       }))
     ];
 
-    // Función interna con reintentos si la API presenta un pico de demanda (Error 503)
     let response;
     let intentos = 0;
-    const maxIntentos = 3;
+    const maxIntentos = 2;
 
     while (intentos < maxIntentos) {
       try {
@@ -75,15 +77,11 @@ Analiza la conversación previa con el usuario para responder de forma coherente
             responseSchema: responseSchema,
           },
         });
-        break; // Éxito, salimos del bucle
+        break;
       } catch (apiError) {
         intentos++;
-        if (apiError.status === 503 && intentos < maxIntentos) {
-          console.log(`Reintentando conexión con Gemini (${intentos}/${maxIntentos})...`);
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2 segundos
-        } else {
-          throw apiError; // Si es otro error o supera reintentos, lo enviamos al catch principal
-        }
+        if (intentos >= maxIntentos) throw apiError;
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
     }
 
@@ -91,10 +89,10 @@ Analiza la conversación previa con el usuario para responder de forma coherente
 
   } catch (e) {
     console.error("ERROR DETALLADO EN RENDER:", e);
-    return res.status(500).json({ error: "Error interno al procesar el diagnóstico." });
+    return res.status(500).json({ error: "Error interno al procesar el mensaje." });
   }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor activo y escuchando en el puerto ${PORT}`);
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
