@@ -60,14 +60,32 @@ Analiza la conversación previa con el usuario para responder de forma coherente
       }))
     ];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Modelo oficial y estable sin sobrecarga
-      contents: contenidos,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
-    });
+    // Función interna con reintentos si la API presenta un pico de demanda (Error 503)
+    let response;
+    let intentos = 0;
+    const maxIntentos = 3;
+
+    while (intentos < maxIntentos) {
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: contenidos,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+          },
+        });
+        break; // Éxito, salimos del bucle
+      } catch (apiError) {
+        intentos++;
+        if (apiError.status === 503 && intentos < maxIntentos) {
+          console.log(`Reintentando conexión con Gemini (${intentos}/${maxIntentos})...`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2 segundos
+        } else {
+          throw apiError; // Si es otro error o supera reintentos, lo enviamos al catch principal
+        }
+      }
+    }
 
     return res.json(JSON.parse(response.text));
 
