@@ -29,7 +29,7 @@ app.post('/api/diagnosticar', async (req, res) => {
     const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
 Tu función es dialogar con el usuario para entender los síntomas mecánicos de su vehículo.
 
-REGLA OBLIGATORIA: Debes responder EXCLUSIVAMENTE con un JSON válido. No agregues texto explicativo fuera del JSON.
+FORMATO OBLIGATORIO: Debes responder EXCLUSIVAMENTE con un JSON válido. No agregues texto explicativo fuera del JSON.
 Estructura JSON requerida:
 {
   "respuestaConversacional": "Tu mensaje amigable o preguntas aclaratorias sobre los síntomas del auto",
@@ -42,53 +42,45 @@ Estructura JSON requerida:
     ];
 
     historialReciente.forEach(msg => {
-      const rolCohere = msg.rol === "usuario" ? "user" : "assistant";
-      const textoLimpio = String(msg.texto || '').trim();
-      if (textoLimpio.length > 0) {
-        messages.push({
-          role: rolCohere,
-          content: textoLimpio
-        });
+      const role = msg.rol === "usuario" ? "user" : "assistant";
+      const content = String(msg.texto || '').trim();
+      if (content.length > 0) {
+        messages.push({ role, content });
       }
     });
 
-    const apiKey = (process.env.COHERE_API_KEY || '').trim();
+    const apiKey = (process.env.GROQ_API_KEY || '').trim();
 
     if (!apiKey) {
-      return res.status(500).json({ error: "No existe la variable COHERE_API_KEY en Render." });
+      console.error("ERROR: No se encontró la variable GROQ_API_KEY.");
+      return res.status(500).json({ error: "Falta la API Key de Groq en las variables de entorno." });
     }
 
-    // Petición a la API V2 de Cohere con el nombre de modelo actualizado
-    const cohereResponse = await fetch('https://api.cohere.com/v2/chat', {
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'command-r-08-2024', // Modelo activo y compatible
+        model: 'llama-3.1-8b-instant',
         messages: messages,
-        temperature: 0.3
+        temperature: 0.3,
+        response_format: { type: "json_object" }
       })
     });
 
-    const dataCohere = await cohereResponse.json();
+    const dataGroq = await groqResponse.json();
 
-    if (!cohereResponse.ok) {
-      console.error("DETALLE ERROR COHERE:", JSON.stringify(dataCohere, null, 2));
+    if (!groqResponse.ok) {
+      console.error("ERROR RESPUESTA GROQ:", JSON.stringify(dataGroq, null, 2));
       return res.status(500).json({
-        error: "Error devuelto por la API de Cohere",
-        detalle: dataCohere.message || dataCohere
+        error: "Error en la respuesta de Groq",
+        detalle: dataGroq.error || dataGroq
       });
     }
 
-    let textoRaw = "";
-    if (dataCohere.message && dataCohere.message.content && dataCohere.message.content.length > 0) {
-      textoRaw = dataCohere.message.content[0].text || "";
-    }
-
-    // Limpieza de etiquetas Markdown
+    let textoRaw = dataGroq.choices[0]?.message?.content || '';
     textoRaw = textoRaw.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
 
     const jsonMatch = textoRaw.match(/\{[\s\S]*\}/);
@@ -98,7 +90,7 @@ Estructura JSON requerida:
       return res.json(resultadoJSON);
     } else {
       return res.json({
-        respuestaConversacional: textoRaw || "Cuéntame más detalles sobre los síntomas del vehículo.",
+        respuestaConversacional: textoRaw || "Cuéntame más detalles sobre las fallas de tu vehículo.",
         causaProbable: "",
         soluciones: []
       });
@@ -107,7 +99,7 @@ Estructura JSON requerida:
   } catch (e) {
     console.error("EXCEPCIÓN EN SERVIDOR:", e);
     return res.status(500).json({
-      error: "Error interno en el servidor Node.js",
+      error: "Error interno en el servidor",
       mensaje: e.message
     });
   }
