@@ -24,55 +24,68 @@ app.post('/api/diagnosticar', async (req, res) => {
       return res.status(400).json({ error: "No se envió un historial válido." });
     }
 
+    // Tomar los últimos 6 mensajes
     const historialReciente = historial.slice(-6);
     const ultimoMsgObjeto = historialReciente[historialReciente.length - 1];
     const textoUsuario = ultimoMsgObjeto ? String(ultimoMsgObjeto.texto || '') : "Hola";
 
+    // Formatear el historial previo excluyendo el último mensaje
     const mensajesPrevios = historialReciente.slice(0, -1);
-    const chatHistory = mensajesPrevios.map(msg => ({
+    const chatHistoryFormatted = mensajesPrevios.map(msg => ({
       role: msg.rol === "usuario" ? "USER" : "CHATBOT",
-      message: String(msg.texto || '')
-    }));
+      message: String(msg.texto || '').trim()
+    })).filter(msg => msg.message.length > 0);
 
     const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
 Tu función es dialogar con el usuario para entender los síntomas mecánicos de su vehículo.
 
-FORMATO OBLIGATORIO: Debes responder EXCLUSIVAMENTE con un JSON válido. No agregues texto antes ni después.
-Estructura:
+FORMATO OBLIGATORIO: Debes responder EXCLUSIVAMENTE con un JSON válido. No agregues texto explicativo fuera del JSON.
+Estructura JSON requerida:
 {
-  "respuestaConversacional": "Tu mensaje amigable o preguntas aclaratorias",
+  "respuestaConversacional": "Tu mensaje amigable o preguntas aclaratorias sobre los síntomas del auto",
   "causaProbable": "Causa estimada si hay suficientes datos, de lo contrario texto vacío ''",
   "soluciones": ["Paso o sugerencia 1", "Paso o sugerencia 2"]
 }`;
 
-    // Petición HTTP directa a Cohere V1 Chat API
+    // Construcción del payload
+    const payload = {
+      model: 'command-r-plus',
+      preamble: promptSistema,
+      message: textoUsuario,
+      temperature: 0.3,
+      response_format: { type: "json_object" }
+    };
+
+    // Solo adjuntar chat_history si contiene mensajes
+    if (chatHistoryFormatted.length > 0) {
+      payload.chat_history = chatHistoryFormatted;
+    }
+
     const cohereResponse = await fetch('https://api.cohere.com/v1/chat', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.COHERE_API_KEY}`,
+        'Authorization': `Bearer ${process.env.COHERE_API_KEY ? process.env.COHERE_API_KEY.trim() : ''}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({
-        model: 'command-r-plus',
-        preamble: promptSistema,
-        message: textoUsuario,
-        chat_history: chatHistory.length > 0 ? chatHistory : undefined,
-        temperature: 0.4
-      })
+      body: JSON.stringify(payload)
     });
 
     const dataCohere = await cohereResponse.json();
 
     if (!cohereResponse.ok) {
-      console.error("Error devuelto por la API de Cohere:", dataCohere);
+      console.error("ERROR DESDE COHERE API:", JSON.stringify(dataCohere, null, 2));
       return res.status(500).json({
-        error: "Error en la respuesta de Cohere",
+        error: "Fallo en la comunicación con Cohere",
         detalle: dataCohere.message || dataCohere
       });
     }
 
     let textoRaw = dataCohere.text || '';
+    
+    // Limpieza de bloques ```json si la IA los incluye
+    textoRaw = textoRaw.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+
     const jsonMatch = textoRaw.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
@@ -80,16 +93,16 @@ Estructura:
       return res.json(resultadoJSON);
     } else {
       return res.json({
-        respuestaConversacional: textoRaw,
+        respuestaConversacional: textoRaw || "Cuéntame más detalles sobre los síntomas del vehículo.",
         causaProbable: "",
         soluciones: []
       });
     }
 
   } catch (e) {
-    console.error("ERROR GRAVE EN SERVIDOR:", e);
+    console.error("EXCEPCIÓN EN EL SERVIDOR:", e);
     return res.status(500).json({
-      error: "Excepción en el servidor Node.js",
+      error: "Error interno en el servidor",
       mensaje: e.message
     });
   }
