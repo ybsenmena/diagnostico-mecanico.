@@ -1,6 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { CohereClient } from 'cohere-ai';
 
 dotenv.config();
 
@@ -18,7 +18,10 @@ app.use((req, res, next) => {
   next();
 });
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Inicializar cliente de Cohere
+const cohere = new CohereClient({
+  token: process.env.COHERE_API_KEY,
+});
 
 app.post('/api/diagnosticar', async (req, res) => {
   try {
@@ -28,71 +31,47 @@ app.post('/api/diagnosticar', async (req, res) => {
       return res.status(400).json({ error: "No se envió un historial válido." });
     }
 
-    // MANTENER SOLO LOS ÚLTIMOS 6 MENSAJES PARA EVITAR TIMEOUTS
+    // Mantener los últimos 6 mensajes para fluidez conversacional
     const historialReciente = historial.slice(-6);
 
-    const responseSchema = {
-      type: Type.OBJECT,
-      properties: {
-        respuestaConversacional: { 
-          type: Type.STRING, 
-          description: "Respuesta amigable, directa y natural. Haz preguntas si necesitas más contexto." 
-        },
-        causaProbable: { 
-          type: Type.STRING, 
-          description: "Causa estimada si hay suficientes datos." 
-        },
-        soluciones: { 
-          type: Type.ARRAY, 
-          items: { type: Type.STRING }, 
-          description: "Sugerencias de acción si aplica." 
-        },
-      },
-      required: ["respuestaConversacional"],
-    };
+    const promptSistema = `Eres un mecánico automotriz de confianza, muy experto, cercano y amigable. 
+Mantén una conversación fluida con el usuario. Si te da un síntoma muy breve, responde haciéndole preguntas aclaratorias.
+Solo proporciona causaProbable y soluciones cuando tengas contexto suficiente de la falla.
 
-    const promptSistema = `Eres un mecánico automotriz experto y amigable. 
-Mantén una conversación fluida. Si falta información para diagnosticar, pregunta amablemente.
-Solo proporciona causaProbable y soluciones cuando los síntomas estén claros.`;
+IMPORTANTE: Tu respuesta DEBE SER EXCLUSIVAMENTE un objeto JSON válido, sin bloques de código markdown, con esta estructura exacta:
+{
+  "respuestaConversacional": "Tu mensaje amigable o preguntas aclaratorias aquí",
+  "causaProbable": "Causa estimada si aplica, o déjalo vacío ''",
+  "soluciones": ["Sugerencia 1", "Sugerencia 2"]
+}`;
 
-    const contenidos = [
-      { role: "user", parts: [{ text: promptSistema }] },
-      ...historialReciente.map(msg => ({
-        role: msg.rol === "usuario" ? "user" : "model",
-        parts: [{ text: String(msg.texto || '') }]
-      }))
-    ];
+    // Mapeo del historial para la API de Cohere
+    const chatHistory = historialReciente.map(msg => ({
+      role: msg.rol === "usuario" ? "USER" : "CHATBOT",
+      message: String(msg.texto || '')
+    }));
 
-    let response;
-    let intentos = 0;
-    const maxIntentos = 2;
+    // El último mensaje del usuario
+    const ultimoMensaje = chatHistory.pop();
 
-    while (intentos < maxIntentos) {
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: contenidos,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema,
-          },
-        });
-        break;
-      } catch (apiError) {
-        intentos++;
-        if (intentos >= maxIntentos) throw apiError;
-        await new Promise(resolve => setTimeout(resolve, 1500));
-      }
-    }
+    const response = await cohere.chat({
+      model: 'command-r-plus',
+      preamble: promptSistema,
+      message: ultimoMensaje ? ultimoMensaje.message : "Hola",
+      chatHistory: chatHistory,
+      temperature: 0.6,
+      responseFormat: { type: "json_object" }
+    });
 
-    return res.json(JSON.parse(response.text));
+    const resultadoJSON = JSON.parse(response.text);
+    return res.json(resultadoJSON);
 
   } catch (e) {
-    console.error("ERROR DETALLADO EN RENDER:", e);
+    console.error("ERROR DETALLADO EN COHERE:", e);
     return res.status(500).json({ error: "Error interno al procesar el mensaje." });
   }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+  console.log(`Servidor activo con Cohere escuchando en el puerto ${PORT}`);
 });
