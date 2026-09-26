@@ -16,6 +16,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// Lista de modelos activos en Groq en orden de prioridad
+const MODELOS_GROQ = [
+  'llama-3.1-8b-instant',
+  'openai/gpt-oss-20b',
+  'llama-3.3-70b-versatile'
+];
+
 app.post('/api/diagnosticar', async (req, res) => {
   try {
     const { historial } = req.body;
@@ -56,27 +63,46 @@ Estructura JSON requerida:
       return res.status(500).json({ error: "Falta la API Key de Groq en las variables de entorno." });
     }
 
-    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: messages,
-        temperature: 0.3,
-        response_format: { type: "json_object" }
-      })
-    });
+    let dataGroq = null;
+    let ultimoError = null;
 
-    const dataGroq = await groqResponse.json();
+    // Probar los modelos de la lista hasta que uno responda con éxito
+    for (const modelId of MODELOS_GROQ) {
+      try {
+        console.log(`Intentando petición con el modelo: ${modelId}`);
+        const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: messages,
+            temperature: 0.3,
+            response_format: { type: "json_object" }
+          })
+        });
 
-    if (!groqResponse.ok) {
-      console.error("ERROR RESPUESTA GROQ:", JSON.stringify(dataGroq, null, 2));
+        const jsonResp = await groqResponse.json();
+
+        if (groqResponse.ok && jsonResp.choices && jsonResp.choices.length > 0) {
+          dataGroq = jsonResp;
+          console.log(`Éxito con el modelo: ${modelId}`);
+          break; // Salir del bucle si tuvo éxito
+        } else {
+          ultimoError = jsonResp;
+        }
+      } catch (err) {
+        ultimoError = err;
+      }
+    }
+
+    if (!dataGroq) {
+      console.error("ERROR TODOS LOS MODELOS FALLARON:", JSON.stringify(ultimoError, null, 2));
       return res.status(500).json({
-        error: "Error en la respuesta de Groq",
-        detalle: dataGroq.error || dataGroq
+        error: "Ningún modelo de Groq estuvo disponible para esta cuenta.",
+        detalle: ultimoError
       });
     }
 
