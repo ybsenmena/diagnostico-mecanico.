@@ -63,7 +63,7 @@ Estructura JSON requerida:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192', // Modelo activo de alta velocidad
+        model: 'llama-3.3-70b-versatile',
         messages: messages,
         temperature: 0.3,
         response_format: { type: "json_object" }
