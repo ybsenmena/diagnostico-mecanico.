@@ -42,23 +42,34 @@ DEBES responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "soluciones": ["Solución 1", "Solución 2"]
 }`;
 
-    const chatHistory = historialReciente.map(msg => ({
+    // Obtener el último texto enviado por el usuario
+    const ultimoMsgObjeto = historialReciente[historialReciente.length - 1];
+    const textoUsuario = ultimoMsgObjeto ? String(ultimoMsgObjeto.texto || '') : "Hola";
+
+    // Construir el historial previo excluyendo el último mensaje
+    const mensajesPrevios = historialReciente.slice(0, -1);
+    const chatHistory = mensajesPrevios.map(msg => ({
       role: msg.rol === "usuario" ? "USER" : "CHATBOT",
       message: String(msg.texto || '')
     }));
 
-    const ultimoMensaje = chatHistory.pop();
-
-    const response = await cohere.chat({
+    // Configuración del payload para Cohere
+    const payload = {
       model: 'command-r-plus',
       preamble: promptSistema,
-      message: ultimoMensaje ? ultimoMensaje.message : "Hola",
-      chatHistory: chatHistory,
+      message: textoUsuario,
       temperature: 0.5,
       responseFormat: { type: "json_object" }
-    });
+    };
 
-    // Limpieza de caracteres de bloque markdown de código si la IA los incluye
+    // Solo adjuntar chatHistory si realmente existen mensajes previos
+    if (chatHistory.length > 0) {
+      payload.chatHistory = chatHistory;
+    }
+
+    const response = await cohere.chat(payload);
+
+    // Limpieza de caracteres markdown de bloque
     let textoLimpio = response.text.trim();
     if (textoLimpio.startsWith("```")) {
       textoLimpio = textoLimpio.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
@@ -70,11 +81,9 @@ DEBES responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
   } catch (e) {
     console.error("ERROR DETALLADO EN COHERE:", e);
     
-    // Respuesta de respaldo limpia si falla el parseo
-    return res.json({
-      respuestaConversacional: "Hola, cuéntame un poco más sobre la falla o síntoma que presenta tu vehículo para poder ayudarte.",
-      causaProbable: "",
-      soluciones: []
+    return res.status(500).json({
+      error: "Error interno al procesar la solicitud con Cohere.",
+      detalle: e.message || String(e)
     });
   }
 });
