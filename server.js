@@ -24,7 +24,6 @@ app.post('/api/diagnosticar', async (req, res) => {
       return res.status(400).json({ error: "No se envió un historial válido." });
     }
 
-    // Tomar máximo los últimos 6 mensajes del historial
     const historialReciente = historial.slice(-6);
 
     const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
@@ -38,7 +37,6 @@ Estructura JSON requerida:
   "soluciones": ["Paso o sugerencia 1", "Paso o sugerencia 2"]
 }`;
 
-    // Construcción de mensajes en formato estándar V2 (system -> historial -> último usuario)
     const messages = [
       { role: "system", content: promptSistema }
     ];
@@ -57,11 +55,10 @@ Estructura JSON requerida:
     const apiKey = (process.env.COHERE_API_KEY || '').trim();
 
     if (!apiKey) {
-      console.error("ERROR CRÍTICO: No existe COHERE_API_KEY en las variables de entorno.");
-      return res.status(500).json({ error: "Falta la API Key en el servidor." });
+      return res.status(500).json({ error: "No existe la variable COHERE_API_KEY en Render." });
     }
 
-    // Petición a Cohere API V2
+    // Petición a la API V2 de Cohere con el nombre de modelo actualizado
     const cohereResponse = await fetch('https://api.cohere.com/v2/chat', {
       method: 'POST',
       headers: {
@@ -70,7 +67,7 @@ Estructura JSON requerida:
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        model: 'command-r-plus',
+        model: 'command-r-08-2024', // Modelo activo y compatible
         messages: messages,
         temperature: 0.3
       })
@@ -86,13 +83,12 @@ Estructura JSON requerida:
       });
     }
 
-    // Extraer texto devuelto por la API V2
     let textoRaw = "";
     if (dataCohere.message && dataCohere.message.content && dataCohere.message.content.length > 0) {
       textoRaw = dataCohere.message.content[0].text || "";
     }
 
-    // Limpieza de etiquetas markdown si la IA las incluye
+    // Limpieza de etiquetas Markdown
     textoRaw = textoRaw.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
 
     const jsonMatch = textoRaw.match(/\{[\s\S]*\}/);
