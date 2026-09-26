@@ -31,59 +31,65 @@ app.post('/api/diagnosticar', async (req, res) => {
 
     const historialReciente = historial.slice(-6);
 
-    const promptSistema = `Eres un mecánico automotriz de confianza, muy experto, cercano y amigable. 
-Mantén una conversación fluida. Si falta información para diagnosticar, responde amablemente haciendo preguntas aclaratorias.
-Solo proporciona causaProbable y soluciones cuando los síntomas estén claros.
+    const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
+Tu tarea es dialogar con el usuario para entender la falla de su vehículo.
 
-DEBES responder ÚNICAMENTE con un JSON válido con esta estructura exacta:
+REGLA OBLIGATORIA: Debes responder EXCLUSIVAMENTE con un objeto JSON sin ningún texto antes ni después.
+Estructura JSON requerida:
 {
-  "respuestaConversacional": "Tu respuesta amigable o preguntas aquí",
-  "causaProbable": "Causa estimada si aplica, o texto vacío ''",
-  "soluciones": ["Solución 1", "Solución 2"]
+  "respuestaConversacional": "Tu respuesta cercana, amable o preguntas aclaratorias",
+  "causaProbable": "Causa estimada del problema si hay suficientes datos, de lo contrario deja texto vacío ''",
+  "soluciones": ["Paso o solución 1", "Paso o solución 2"]
 }`;
 
-    // Obtener el último texto enviado por el usuario
+    // Obtener el último mensaje del usuario
     const ultimoMsgObjeto = historialReciente[historialReciente.length - 1];
     const textoUsuario = ultimoMsgObjeto ? String(ultimoMsgObjeto.texto || '') : "Hola";
 
-    // Construir el historial previo excluyendo el último mensaje
+    // Historial previo para Cohere
     const mensajesPrevios = historialReciente.slice(0, -1);
     const chatHistory = mensajesPrevios.map(msg => ({
       role: msg.rol === "usuario" ? "USER" : "CHATBOT",
       message: String(msg.texto || '')
     }));
 
-    // Configuración del payload para Cohere
     const payload = {
       model: 'command-r-plus',
       preamble: promptSistema,
       message: textoUsuario,
-      temperature: 0.5,
-      responseFormat: { type: "json_object" }
+      temperature: 0.3
     };
 
-    // Solo adjuntar chatHistory si realmente existen mensajes previos
     if (chatHistory.length > 0) {
       payload.chatHistory = chatHistory;
     }
 
     const response = await cohere.chat(payload);
 
-    // Limpieza de caracteres markdown de bloque
-    let textoLimpio = response.text.trim();
-    if (textoLimpio.startsWith("```")) {
-      textoLimpio = textoLimpio.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-    }
+    // Extracción segura del JSON mediante Expresión Regular
+    let textoRaw = response.text || '';
+    const jsonMatch = textoRaw.match(/\{[\s\S]*\}/);
 
-    const resultadoJSON = JSON.parse(textoLimpio);
-    return res.json(resultadoJSON);
+    if (jsonMatch) {
+      const resultadoJSON = JSON.parse(jsonMatch[0]);
+      return res.json(resultadoJSON);
+    } else {
+      // Si no se detectó JSON estructurado, devolvemos el texto como respuesta conversacional
+      return res.json({
+        respuestaConversacional: textoRaw || "Cuéntame un poco más sobre la falla para poder orientarte.",
+        causaProbable: "",
+        soluciones: []
+      });
+    }
 
   } catch (e) {
     console.error("ERROR DETALLADO EN COHERE:", e);
     
-    return res.status(500).json({
-      error: "Error interno al procesar la solicitud con Cohere.",
-      detalle: e.message || String(e)
+    // Retorno de contingencia para que la app siempre responda
+    return res.json({
+      respuestaConversacional: "Hola. Por favor cuéntame qué ruidos, síntomas o fallas notas en tu vehículo.",
+      causaProbable: "",
+      soluciones: []
     });
   }
 });
