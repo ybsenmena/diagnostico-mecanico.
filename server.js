@@ -1,6 +1,5 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { CohereClient } from 'cohere-ai';
 
 dotenv.config();
 
@@ -17,10 +16,6 @@ app.use((req, res, next) => {
   next();
 });
 
-const cohere = new CohereClient({
-  token: process.env.COHERE_API_KEY,
-});
-
 app.post('/api/diagnosticar', async (req, res) => {
   try {
     const { historial } = req.body;
@@ -30,66 +25,72 @@ app.post('/api/diagnosticar', async (req, res) => {
     }
 
     const historialReciente = historial.slice(-6);
-
-    const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
-Tu tarea es dialogar con el usuario para entender la falla de su vehículo.
-
-REGLA OBLIGATORIA: Debes responder EXCLUSIVAMENTE con un objeto JSON sin ningún texto antes ni después.
-Estructura JSON requerida:
-{
-  "respuestaConversacional": "Tu respuesta cercana, amable o preguntas aclaratorias",
-  "causaProbable": "Causa estimada del problema si hay suficientes datos, de lo contrario deja texto vacío ''",
-  "soluciones": ["Paso o solución 1", "Paso o solución 2"]
-}`;
-
-    // Obtener el último mensaje del usuario
     const ultimoMsgObjeto = historialReciente[historialReciente.length - 1];
     const textoUsuario = ultimoMsgObjeto ? String(ultimoMsgObjeto.texto || '') : "Hola";
 
-    // Historial previo para Cohere
     const mensajesPrevios = historialReciente.slice(0, -1);
     const chatHistory = mensajesPrevios.map(msg => ({
       role: msg.rol === "usuario" ? "USER" : "CHATBOT",
       message: String(msg.texto || '')
     }));
 
-    const payload = {
-      model: 'command-r-plus',
-      preamble: promptSistema,
-      message: textoUsuario,
-      temperature: 0.3
-    };
+    const promptSistema = `Eres un mecánico automotriz de confianza, experto y amigable.
+Tu función es dialogar con el usuario para entender los síntomas mecánicos de su vehículo.
 
-    if (chatHistory.length > 0) {
-      payload.chatHistory = chatHistory;
+FORMATO OBLIGATORIO: Debes responder EXCLUSIVAMENTE con un JSON válido. No agregues texto antes ni después.
+Estructura:
+{
+  "respuestaConversacional": "Tu mensaje amigable o preguntas aclaratorias",
+  "causaProbable": "Causa estimada si hay suficientes datos, de lo contrario texto vacío ''",
+  "soluciones": ["Paso o sugerencia 1", "Paso o sugerencia 2"]
+}`;
+
+    // Petición HTTP directa a Cohere V1 Chat API
+    const cohereResponse = await fetch('https://api.cohere.com/v1/chat', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.COHERE_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'command-r-plus',
+        preamble: promptSistema,
+        message: textoUsuario,
+        chat_history: chatHistory.length > 0 ? chatHistory : undefined,
+        temperature: 0.4
+      })
+    });
+
+    const dataCohere = await cohereResponse.json();
+
+    if (!cohereResponse.ok) {
+      console.error("Error devuelto por la API de Cohere:", dataCohere);
+      return res.status(500).json({
+        error: "Error en la respuesta de Cohere",
+        detalle: dataCohere.message || dataCohere
+      });
     }
 
-    const response = await cohere.chat(payload);
-
-    // Extracción segura del JSON mediante Expresión Regular
-    let textoRaw = response.text || '';
+    let textoRaw = dataCohere.text || '';
     const jsonMatch = textoRaw.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
       const resultadoJSON = JSON.parse(jsonMatch[0]);
       return res.json(resultadoJSON);
     } else {
-      // Si no se detectó JSON estructurado, devolvemos el texto como respuesta conversacional
       return res.json({
-        respuestaConversacional: textoRaw || "Cuéntame un poco más sobre la falla para poder orientarte.",
+        respuestaConversacional: textoRaw,
         causaProbable: "",
         soluciones: []
       });
     }
 
   } catch (e) {
-    console.error("ERROR DETALLADO EN COHERE:", e);
-    
-    // Retorno de contingencia para que la app siempre responda
-    return res.json({
-      respuestaConversacional: "Hola. Por favor cuéntame qué ruidos, síntomas o fallas notas en tu vehículo.",
-      causaProbable: "",
-      soluciones: []
+    console.error("ERROR GRAVE EN SERVIDOR:", e);
+    return res.status(500).json({
+      error: "Excepción en el servidor Node.js",
+      mensaje: e.message
     });
   }
 });
